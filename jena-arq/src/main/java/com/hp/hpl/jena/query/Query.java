@@ -77,6 +77,7 @@ public class Query extends Prologue implements Cloneable, Printable
     
     private List<String> graphURIs = new ArrayList<>() ;
     private List<String> namedGraphURIs = new ArrayList<>() ;
+    private volatile boolean sealed = false;
     
     // The WHERE clause
     private Element queryPattern = null ;
@@ -139,10 +140,10 @@ public class Query extends Prologue implements Cloneable, Printable
     //private VarAlloc varAnonAlloc = new VarAlloc(ARQConstants.allocVarAnonMarker) ;
     //public Var allocVarAnon() { return varAnonAlloc.allocVar() ; }
     
-    public void setQuerySelectType()            { queryType = QueryTypeSelect ; }
-    public void setQueryConstructType()         { queryType = QueryTypeConstruct ; queryResultStar = true ; }
-    public void setQueryDescribeType()          { queryType = QueryTypeDescribe ; }
-    public void setQueryAskType()               { queryType = QueryTypeAsk ; }
+    public void setQuerySelectType()            {         assertNotSealed(); queryType = QueryTypeSelect ; }
+    public void setQueryConstructType()         { assertNotSealed(); queryType = QueryTypeConstruct ; queryResultStar = true ; }
+    public void setQueryDescribeType()          { assertNotSealed(); queryType = QueryTypeDescribe ; }
+    public void setQueryAskType()               { assertNotSealed(); queryType = QueryTypeAsk ; }
     
     public int getQueryType()                   { return queryType ; }
     
@@ -160,7 +161,8 @@ public class Query extends Prologue implements Cloneable, Printable
     public Prologue getPrologue()               { return this ; }
     
     public void setStrict(boolean isStrict)
-    { 
+    {
+        assertNotSealed();
         strictQuery = isStrict ;
         
         if ( strictQuery )
@@ -183,10 +185,10 @@ public class Query extends Prologue implements Cloneable, Printable
 //            prefixMap.setGlobalPrefixMapping(globalPrefixMap) ;
     }
     
-    public void setDistinct(boolean b) { distinct = b ; }
+    public void setDistinct(boolean b) { assertNotSealed(); distinct = b ; }
     public boolean isDistinct()        { return distinct ; }
     
-    public void setReduced(boolean b) { reduced = b ; }
+    public void setReduced(boolean b) { assertNotSealed(); reduced = b ; }
     public boolean isReduced()        { return reduced ; }
     
     /** @return Returns the syntax. */
@@ -194,7 +196,8 @@ public class Query extends Prologue implements Cloneable, Printable
 
     /** @param syntax The syntax to set. */
     public void setSyntax(Syntax syntax)
-    { 
+    {
+        assertNotSealed();
         this.syntax = syntax ;
         if ( syntax != Syntax.syntaxSPARQL )
             strictQuery = false ;
@@ -203,11 +206,11 @@ public class Query extends Prologue implements Cloneable, Printable
     // ---- Limit/offset
     
     public long getLimit()             { return resultLimit ; } 
-    public void setLimit(long limit)   { resultLimit = limit ; }
+    public void setLimit(long limit)   { assertNotSealed(); resultLimit = limit ; }
     public boolean hasLimit()          { return resultLimit != NOLIMIT ; }
     
     public long getOffset()            { return resultOffset ; } 
-    public void setOffset(long offset) { resultOffset = offset ; }
+    public void setOffset(long offset) { assertNotSealed(); resultOffset = offset ; }
     public boolean hasOffset()         { return resultOffset != NOLIMIT ; }
     
     // ---- Order By
@@ -260,6 +263,7 @@ public class Query extends Prologue implements Cloneable, Printable
      */
     public void setQueryResultStar(boolean isQueryStar)
     {
+        assertNotSealed();
 //        if ( isConstructType() )
 //            throw new IllegalArgumentException("Query is a CONSTRUCT query") ;
 //        if ( isAskType() )
@@ -269,6 +273,7 @@ public class Query extends Prologue implements Cloneable, Printable
     
     public void setQueryPattern(Element elt)
     {
+        assertNotSealed();
         queryPattern = elt ;
 //        if ( queryBlock == null )
 //            queryBlock = new ElementBlock(null, null) ;
@@ -428,19 +433,21 @@ public class Query extends Prologue implements Cloneable, Printable
                 throw new QueryException("Not a variable: "+v) ;
             var = Var.alloc(v) ;
         }
+        assertNotSealed();
         _addVarExpr(projectVars, var, expr) ;
     }
     
     /** Add an to a SELECT query (a name will be created for it) */
     public void addResultVar(Expr expr)
     {
+        assertNotSealed();
         _addVarExpr(projectVars, allocInternVar(), expr) ;
     }
 
     /** Add a named expression to a SELECT query */
     public void addResultVar(String varName, Expr expr)
     {
-        Var var = null ; 
+        Var var = null ;
         if ( varName == null )
             var = allocInternVar() ;
         else
@@ -448,6 +455,7 @@ public class Query extends Prologue implements Cloneable, Printable
             varName = Var.canonical(varName) ;
             var = Var.alloc(varName) ;
         }
+        assertNotSealed();
         _addVarExpr(projectVars, var, expr) ;
     }
 
@@ -510,6 +518,7 @@ public class Query extends Prologue implements Cloneable, Printable
     
     public void addGroupBy(Var v, Expr expr)
     {
+        assertNotSealed();
         if ( v == null )
             v = allocInternVar() ;
         
@@ -525,7 +534,7 @@ public class Query extends Prologue implements Cloneable, Printable
 
     public void addHavingCondition(Expr expr)
     {
-        havingExprs.add(expr) ;
+        assertNotSealed(); havingExprs.add(expr) ;
     }
 
     // ---- Aggregates
@@ -584,6 +593,7 @@ public class Query extends Prologue implements Cloneable, Printable
 
     public void setValuesDataBlock(List<Var> variables, List<Binding> values)
     {
+        assertNotSealed();
         checkDataBlock(variables, values) ;
         valuesDataBlock = new TableData(variables, values) ;
     }
@@ -613,12 +623,18 @@ public class Query extends Prologue implements Cloneable, Printable
     }
     
     /** Set triple patterns for a construct query */ 
-    public void setConstructTemplate(Template templ)  { constructTemplate = templ ; }
+    public void setConstructTemplate(Template templ)
+    {
+        assertNotSealed();
+        assertNotSealed();
+        constructTemplate = templ ;
+    }
 
     // ---- DESCRIBE
     
     public void addDescribeNode(Node node)
     {
+        assertNotSealed();
         if ( node.isVariable() ) { addResultVar(node) ; return ; }
         if ( node.isURI() || node.isBlank() )
         {
@@ -640,11 +656,12 @@ public class Query extends Prologue implements Cloneable, Printable
     /** Fix up when the query has "*" (when SELECT * or DESCRIBE *)
      *  and for a construct query.  This operation is idempotent.
      */
-    public void setResultVars()
+    public synchronized  void setResultVars()
     {
         if ( resultVarsSet )
             return ;
         resultVarsSet = true ;
+        seal();
         
         if ( getQueryPattern() == null )
         {
@@ -681,9 +698,22 @@ public class Query extends Prologue implements Cloneable, Printable
 //        if ( isAskType() )
 //        {}
     }
-    
+
+
+    private void assertNotSealed()
+    {
+        if (sealed) {
+            throw new IllegalStateException( "The query is sealed and cannot be modified" );
+        }
+    }
+
+    private void seal(){
+        sealed = true;
+    }
+
     private void findAndAddNamedVars()
     {
+        assertNotSealed();
         Iterator<Var> varIter = null ;
         if ( hasGroupBy() )
             varIter = groupVars.getVars().iterator() ;
